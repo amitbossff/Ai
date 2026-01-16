@@ -2,8 +2,8 @@
   "name": "disha-telegram-bot",
   "version": "1.0.0",
   "type": "module",
+  "private": true,
   "dependencies": {
-    "openai": "^4.0.0",
     "node-fetch": "^3.3.2"
   }
 }
