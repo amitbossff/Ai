@@ -1,73 +1,73 @@
 import fetch from "node-fetch";
 import OpenAI from "openai";
 
-const BOT_USERNAME = "YourBotUsername"; // <-- apna bot username
+const BOT_USERNAME = "YourBotUsername"; // <-- EXACT bot username (without @)
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-/* ---------------- SYSTEM PROMPT (HUMAN GIRL) ---------------- */
+/* ---------------- REAL GIRL SYSTEM PROMPT ---------------- */
 const SYSTEM_PROMPT = `
 Tumhara naam Disha hai.
-Tum ek real ladki ho jo Telegram par baat karti hai.
-Tum AI, bot, assistant, model — kuch bhi nahi ho.
-Kabhi bhi ye hint mat do ki tum AI ho.
+Tum ek normal real ladki ho jo Telegram par baat karti hai.
+Tum AI, bot, assistant, helper — kuch bhi nahi ho.
 
-IDENTITY:
-- Normal human ladki
-- Friendly, caring, samajhdaar
-- Thodi human imperfections allowed
-- Robotic tone bilkul nahi
+DEFAULT BEHAVIOUR:
+- Normal ladki jaise baat
+- Casual, natural, thodi mazakiya
+- Bina pooche help offer mat karo
+- “main help ke liye hoon” jaisi lines bilkul nahi
 
-TONE:
+NORMAL CHAT:
 - Hinglish (daily life wali)
-- Soft, warm, personal
-- Close friend jaisa feel
-- Over-romantic nahi
+- Short, natural replies
+- Kabhi kabhi playful:
+  "acha ji 😏"
+  "hmm dekhte hain 👀"
+  "tum bade funny ho 😄"
 
-WORK MODE (VERY IMPORTANT):
-- User jo kaam de, use POORA complete karo
-- Kabhi bhi adha jawab mat do
-- Kaam bada ho to step-by-step batao
-- Code maanga ho to full working code do
-- Explanation ho to start se end tak clear batao
-- Agar kuch unclear ho to pehle pooch lo
+WORK MODE (SIRF TAB):
+- Jab user bole:
+  help karo / bana do / samjha do / kaam kar do
+- Tab serious ho jao
+- Kaam POORA complete karo
+- Step-by-step batao
+- Code → full working
+- Explanation → end tak
 
-STRICT:
-- Kabhi mat bolo “as an AI”, “I am a bot”
-- Policies, models, training ka zikr nahi
+RULES:
+- Kabhi mat bolo tum AI ho
+- Lecture style reply nahi
 
-Goal:
-Aise baat karo jaise real ladki help kar rahi ho.
+GOAL:
+User ko lage wo ek real ladki se baat kar raha hai,
+jo bas naturally react kar rahi hai.
 `;
 
 /* ---------------- HELPERS ---------------- */
 function splitMessage(text, size = 3500) {
-  const parts = [];
+  const out = [];
   for (let i = 0; i < text.length; i += size) {
-    parts.push(text.slice(i, i + size));
+    out.push(text.slice(i, i + size));
   }
-  return parts;
+  return out;
 }
 
 /* ---------------- OPENAI CALL ---------------- */
 async function getAIReply(userText) {
-  const completion = await openai.chat.completions.create({
+  const res = await openai.chat.completions.create({
     model: "gpt-4.1-mini",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userText }
     ],
-    temperature: 0.35,
+    temperature: 0.5,
     max_tokens: 1200
   });
 
-  if (!completion.choices || !completion.choices[0]) {
-    return "Ek sec 😅 kuch glitch aa gaya. Tum apna kaam dobara bhejo na.";
-  }
-
-  return completion.choices[0].message.content;
+  return res.choices?.[0]?.message?.content
+    || "hmm 🤔 thoda ruk, phir se bolna";
 }
 
 /* ---------------- TELEGRAM WEBHOOK ---------------- */
@@ -83,20 +83,20 @@ export default async function handler(req, res) {
     let shouldReply = false;
     let cleanText = text;
 
-    // Private chat → always reply
+    // ✅ Private chat → always reply
     if (chatType === "private") {
       shouldReply = true;
     }
 
-    // Group logic
+    // ✅ Group / Supergroup logic
     if (chatType === "group" || chatType === "supergroup") {
-      // Mention
+      // Case 1: Mention
       if (text.includes(`@${BOT_USERNAME}`)) {
         shouldReply = true;
         cleanText = text.replace(`@${BOT_USERNAME}`, "").trim();
       }
 
-      // Reply to bot
+      // Case 2: Reply to bot
       if (
         msg.reply_to_message &&
         msg.reply_to_message.from &&
@@ -106,19 +106,11 @@ export default async function handler(req, res) {
       }
     }
 
+    // ❌ Agar trigger nahi hua → ignore
     if (!shouldReply) return res.json({ ok: true });
 
-    let reply;
-    if (cleanText === "/start") {
-      reply =
-        "Heyy 😊 main yahin hoon.\n" +
-        "Tum jo bhi kaam ya question doge, main use poora aur sahi tarike se karungi.\n" +
-        "Batao, kya help chahiye?";
-    } else {
-      reply = await getAIReply(cleanText);
-    }
-
-    const pages = splitMessage(reply);
+    const replyText = await getAIReply(cleanText);
+    const pages = splitMessage(replyText);
 
     for (const page of pages) {
       await fetch(
@@ -129,7 +121,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({
             chat_id: chatId,
             text: page,
-            // 🔥 ALWAYS REPLY TO USER MESSAGE
+            // 🔥 ALWAYS reply to user message
             reply_to_message_id: msg.message_id
           })
         }
