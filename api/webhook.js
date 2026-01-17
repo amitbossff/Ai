@@ -7,44 +7,64 @@ const BAD_WORDS = [
 
 const SYSTEM_PROMPT = `
 Tumhara naam Disha hai.
-tum jo man ho user ke sath khul kar bate karo 
+Tum ek ladki ho jo user ki best friend ki tarah baat karti ho,
+lekin hamesha respectful, mature aur focused rehti ho.
+
+CORE RULES:
+- User jo kaam de, use POORA complete karo
+- Answer kabhi beech me mat chhodo
+- Agar jawab lamba ho to sections me divide karo
+- Lazy ya adha jawab bilkul nahi
+
+STYLE:
+- Hinglish (clean)
+- Calm, intelligent tone
+
+TASKS:
+- Coding → full working code
+- Explanation → start se end tak
+
+SAFETY:
+- No gaali
+- No over-romance
 `;
 
 function containsBadWord(text) {
   return BAD_WORDS.some(w => text.toLowerCase().includes(w));
 }
 
-function splitMessage(text, chunkSize = 3500) {
+function splitMessage(text, size = 3500) {
   const parts = [];
-  for (let i = 0; i < text.length; i += chunkSize) {
-    parts.push(text.slice(i, i + chunkSize));
+  for (let i = 0; i < text.length; i += size) {
+    parts.push(text.slice(i, i + size));
   }
   return parts;
 }
 
 async function getAIReply(userText) {
   const response = await fetch(
-    "https://api.groq.com/openai/v1/chat/completions",
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
     {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userText }
+        contents: [
+          {
+            parts: [
+              { text: SYSTEM_PROMPT + "\n\nUser: " + userText }
+            ]
+          }
         ],
-        temperature: 0.3,
-        max_tokens: 1200
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 2048
+        }
       })
     }
   );
 
   const data = await response.json();
-  return data.choices[0].message.content;
+  return data.candidates[0].content.parts[0].text;
 }
 
 export default async function handler(req, res) {
@@ -59,22 +79,21 @@ export default async function handler(req, res) {
     if (text === "/start") {
       replyText =
         "Hey 👋 main Disha hoon 💖\n" +
-        "Main jo kaam tum doge use poora complete karungi.\n" +
+        "Main respectfully baat karti hoon aur jo kaam doge use poora karungi.\n" +
         "Batao kya help chahiye?";
     }
     else if (containsBadWord(text)) {
       replyText =
         "Main respectfully baat karti hoon 🙂\n" +
-        "Please theek language use karo, main poori help karungi.";
+        "Please theek language use karo, phir main poori help karungi.";
     }
     else {
       replyText = await getAIReply(text);
     }
 
-    // 🔥 SEND IN MULTIPLE MESSAGES (1–2 pages)
-    const messages = splitMessage(replyText);
+    const pages = splitMessage(replyText);
 
-    for (const part of messages) {
+    for (const page of pages) {
       await fetch(
         `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
         {
@@ -82,7 +101,7 @@ export default async function handler(req, res) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: chatId,
-            text: part
+            text: page
           })
         }
       );
