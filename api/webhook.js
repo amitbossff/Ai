@@ -64,11 +64,8 @@ async function getAIReply(userText) {
     max_tokens: 1400
   });
 
-  if (!completion.choices || !completion.choices[0]) {
-    return "Sorry 😔 abhi thoda issue aa gaya. Tum apna kaam dobara bhejo, main poori koshish karungi.";
-  }
-
-  return completion.choices[0].message.content;
+  return completion.choices?.[0]?.message?.content
+    || "hmm 🤔 thoda ruk, phir se bolna";
 }
 
 /* ---------------- TELEGRAM WEBHOOK ---------------- */
@@ -81,18 +78,15 @@ export default async function handler(req, res) {
     const text = msg.text;
 
     let reply;
-
     if (text === "/start") {
-      reply =
-        "Heyy 👋 main yahin hoon 😊\n" +
-        "Tum jo bhi kaam ya question doge, main use poora aur sahi tarike se karungi.\n" +
-        "Batao, kya help chahiye?";
+      reply = "Heyy 😊 bolo, kya chal raha hai?";
     } else {
       reply = await getAIReply(text);
     }
 
     const pages = splitMessage(reply);
 
+    // 🔥 ALWAYS REPLY TO USER MESSAGE
     for (const page of pages) {
       await fetch(
         `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
@@ -101,7 +95,8 @@ export default async function handler(req, res) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: chatId,
-            text: page
+            text: page,
+            reply_to_message_id: msg.message_id
           })
         }
       );
