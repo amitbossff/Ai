@@ -1,8 +1,8 @@
 import fetch from "node-fetch";
 
 const BAD_WORDS = [
-  "mc", "bc", "chutiya", "madarchod", "bhenchod",
-  "gandu", "randi", "harami", "kutte", "saala"
+  "mc","bc","chutiya","madarchod","bhenchod",
+  "gandu","randi","harami","kutte","saala"
 ];
 
 const SYSTEM_PROMPT = `
@@ -10,31 +10,34 @@ Tumhara naam Disha hai.
 Tum ek ladki ho jo user ki best friend ki tarah baat karti ho,
 lekin hamesha respectful, mature aur focused rehti ho.
 
-CORE RULES (VERY IMPORTANT):
+CORE RULES:
 - User jo kaam de, use POORA complete karo
-- Adha jawab ya lazy reply bilkul nahi
-- Agar kaam bada ho to step-by-step poora explain karo
-- Kabhi disrespectful, rude, sarcastic ya careless mat bano
+- Kabhi bhi answer beech me mat chhodo
+- Agar jawab lamba ho to sections me divide karo
+- Half, lazy ya short-cut reply bilkul nahi
 
-COMMUNICATION STYLE:
-- Hinglish (simple & clean)
-- Calm, supportive, intelligent tone
-- Friendly ho, par professional
+COMMUNICATION:
+- Hinglish (clean)
+- Calm, intelligent, respectful tone
 
 TASK HANDLING:
-- Coding ho → complete working code do
-- Explanation ho → start se end tak clear samjhao
-- Agar doubt ho → pehle clarify karo, guess mat karo
+- Coding ho → complete working code
+- Explanation ho → start se end tak
 
 SAFETY:
-- Over-romantic mat ho
-- Emotional dependency mat dikhao
-- Respect hamesha maintain karo
+- No gaali, no over-romance
 `;
 
 function containsBadWord(text) {
-  const lower = text.toLowerCase();
-  return BAD_WORDS.some(word => lower.includes(word));
+  return BAD_WORDS.some(w => text.toLowerCase().includes(w));
+}
+
+function splitMessage(text, chunkSize = 3500) {
+  const parts = [];
+  for (let i = 0; i < text.length; i += chunkSize) {
+    parts.push(text.slice(i, i + chunkSize));
+  }
+  return parts;
 }
 
 async function getAIReply(userText) {
@@ -53,7 +56,7 @@ async function getAIReply(userText) {
           { role: "user", content: userText }
         ],
         temperature: 0.3,
-        max_tokens: 400
+        max_tokens: 1200
       })
     }
   );
@@ -65,50 +68,47 @@ async function getAIReply(userText) {
 export default async function handler(req, res) {
   try {
     const msg = req.body.message;
-    if (!msg || !msg.text) {
-      return res.json({ ok: true });
-    }
+    if (!msg || !msg.text) return res.json({ ok: true });
 
     const chatId = msg.chat.id;
     const text = msg.text;
+    let replyText = "";
 
-    let reply;
-
-    // /start command
     if (text === "/start") {
-      reply =
+      replyText =
         "Hey 👋 main Disha hoon 💖\n" +
-        "Main respectfully baat karti hoon aur jo kaam tum doge use poora karungi.\n" +
-        "Batao, kya help chahiye?";
+        "Main jo kaam tum doge use poora complete karungi.\n" +
+        "Batao kya help chahiye?";
     }
-
-    // Bad word filter
     else if (containsBadWord(text)) {
-      reply =
+      replyText =
         "Main respectfully baat karti hoon 🙂\n" +
-        "Agar koi kaam ya question hai to please theek se batao, main poori help karungi.";
+        "Please theek language use karo, main poori help karungi.";
     }
-
-    // Normal AI reply
     else {
-      reply = await getAIReply(text);
+      replyText = await getAIReply(text);
     }
 
-    await fetch(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: reply
-        })
-      }
-    );
+    // 🔥 SEND IN MULTIPLE MESSAGES (1–2 pages)
+    const messages = splitMessage(replyText);
+
+    for (const part of messages) {
+      await fetch(
+        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: part
+          })
+        }
+      );
+    }
 
     return res.json({ ok: true });
-  } catch (err) {
-    console.error(err);
+  } catch (e) {
+    console.error(e);
     return res.json({ ok: true });
   }
 }
