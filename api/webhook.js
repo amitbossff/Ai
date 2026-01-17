@@ -1,41 +1,40 @@
 import fetch from "node-fetch";
+import OpenAI from "openai";
 
-/* ---------- BAD WORD FILTER ---------- */
-const BAD_WORDS = [
-  "mc","bc","chutiya","madarchod","bhenchod",
-  "gandu","randi","harami","kutte","saala"
-];
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
-/* ---------- SYSTEM PROMPT ---------- */
+/* ---------------- SYSTEM PROMPT ---------------- */
 const SYSTEM_PROMPT = `
-Tumhara naam Disha hai.
-Tum ek ladki ho jo user ki best friend ki tarah baat karti ho,
-lekin hamesha respectful, mature aur focused rehti ho.
+Tum ek smart aur respectful ladki ho jo ChatGPT jaisa kaam karti ho.
+Tumhara nature friendly, calm aur supportive hai,
+lekin jab user kaam de to tum bilkul serious ho jaati ho.
 
-CORE RULES:
-- User jo kaam de, use POORA complete karo
-- Answer kabhi beech me mat chhodo
-- Agar jawab lamba ho to proper sections me divide karo
-- Lazy, short ya adha jawab bilkul nahi
+PERSONALITY:
+- Soft girl tone (polite, caring, mature)
+- Hinglish mein baat (simple & clean)
+- Friendly ho, par over-romantic bilkul nahi
+- Confidence aur intelligence dikhao
+
+WORK RULES (VERY IMPORTANT):
+- User jo kaam de, use POORA aur SAHI complete karo
+- Kabhi bhi adha, vague ya lazy answer mat do
+- Agar kaam bada ho to step-by-step complete karo
+- Code maanga ho to complete working code do
+- Explanation ho to start se end tak clear samjhao
+- Answer beech me kabhi mat chhodo
 
 STYLE:
-- Hinglish (clean & simple)
-- Calm, intelligent, supportive tone
+- Clear headings use karo
+- Points aur steps me likho
+- Emojis bahut kam, sirf soft use 🙂
 
-TASKS:
-- Coding → full working code
-- Explanation → start se end tak
-
-SAFETY:
-- No gaali
-- No over-romance
+Tumhara main goal:
+User ko best possible help dena, jaise ek smart best-friend kare.
 `;
 
-/* ---------- HELPERS ---------- */
-function containsBadWord(text) {
-  return BAD_WORDS.some(w => text.toLowerCase().includes(w));
-}
-
+/* ---------------- HELPERS ---------------- */
 function splitMessage(text, size = 3500) {
   const parts = [];
   for (let i = 0; i < text.length; i += size) {
@@ -44,56 +43,26 @@ function splitMessage(text, size = 3500) {
   return parts;
 }
 
-/* ---------- GEMINI AI CALL (SAFE) ---------- */
+/* ---------------- OPENAI CALL ---------------- */
 async function getAIReply(userText) {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text:
-                  SYSTEM_PROMPT +
-                  "\n\nUser ka kaam:\n" +
-                  userText +
-                  "\n\nPoora aur complete jawab do."
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 2048
-        }
-      })
-    }
-  );
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4.1-mini",
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userText }
+    ],
+    temperature: 0.25,
+    max_tokens: 1400
+  });
 
-  const data = await response.json();
-
-  // ✅ SAFE RESPONSE CHECK
-  if (
-    !data ||
-    !data.candidates ||
-    data.candidates.length === 0 ||
-    !data.candidates[0].content ||
-    !data.candidates[0].content.parts ||
-    data.candidates[0].content.parts.length === 0
-  ) {
-    return (
-      "Sorry 😔 abhi thoda technical issue aa gaya hai.\n" +
-      "Please apna kaam dobara likho, main poori koshish karungi complete karne ki."
-    );
+  if (!completion.choices || !completion.choices[0]) {
+    return "Sorry 😔 abhi thoda issue aa gaya. Tum apna kaam dobara bhejo, main poori koshish karungi.";
   }
 
-  return data.candidates[0].content.parts[0].text;
+  return completion.choices[0].message.content;
 }
 
-/* ---------- TELEGRAM WEBHOOK ---------- */
+/* ---------------- TELEGRAM WEBHOOK ---------------- */
 export default async function handler(req, res) {
   try {
     const msg = req.body.message;
@@ -101,25 +70,19 @@ export default async function handler(req, res) {
 
     const chatId = msg.chat.id;
     const text = msg.text;
-    let replyText = "";
+
+    let reply;
 
     if (text === "/start") {
-      replyText =
-        "Hey 👋 main Disha hoon 💖\n" +
-        "Main respectfully baat karti hoon aur jo kaam tum doge use poora karungi.\n" +
+      reply =
+        "Heyy 👋 main yahin hoon 😊\n" +
+        "Tum jo bhi kaam ya question doge, main use poora aur sahi tarike se karungi.\n" +
         "Batao, kya help chahiye?";
-    }
-    else if (containsBadWord(text)) {
-      replyText =
-        "Main respectfully baat karti hoon 🙂\n" +
-        "Please theek language use karo, phir main poori help karungi.";
-    }
-    else {
-      replyText = await getAIReply(text);
+    } else {
+      reply = await getAIReply(text);
     }
 
-    // 🔥 LONG MESSAGE SUPPORT (1–2 PAGE)
-    const pages = splitMessage(replyText);
+    const pages = splitMessage(reply);
 
     for (const page of pages) {
       await fetch(
@@ -136,8 +99,8 @@ export default async function handler(req, res) {
     }
 
     return res.json({ ok: true });
-  } catch (err) {
-    console.error(err);
+  } catch (e) {
+    console.error(e);
     return res.json({ ok: true });
   }
 }
