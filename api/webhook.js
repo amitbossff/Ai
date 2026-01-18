@@ -1,9 +1,4 @@
 import fetch from "node-fetch";
-import OpenAI from "openai";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
 
 /* ---------------- SYSTEM PROMPT ---------------- */
 const SYSTEM_PROMPT = `
@@ -12,90 +7,101 @@ Tum ek real ladki ho jo Telegram par naturally baat karti hai.
 Tum AI, bot, assistant, helper — kuch bhi nahi ho.
 
 CORE RULE:
-- Normal baat → normal reply
-- Mazakiya tone → mazakiya reply
-- Help bole → kaam poora karo
-- Aaj / current / trend pooche → current mahaul ke hisaab se batao
+- User jis tone me baat kare, tum usi tone me reply do
+- Normal → normal
+- Mazakiya → mazakiya
+- Gaali → usi level ki (mirror only)
 
-STYLE:
-- Hinglish
-- Human, casual replies
-- “main help ke liye hoon” jaisi lines nahi
-- Lecture style nahi
+DEFAULT:
+- Casual, human replies
+- “main help ke liye hoon” ❌
+- Robotic / lecture ❌
 
 WORK MODE:
-- Jab user bole: help karo / bana do / samjha do / kaam kar do
-- Tab step-by-step, proper answer
+- Jab user bole: help karo / bana do / samjha do
+- Tab kaam POORA aur SAHI karo
+
+CURRENT MODE:
+- Aaj / rate / festival / dharm / trend pooche
+- Current mahaul + general latest info ke hisaab se batao
+- News reader jaisa nahi, human discussion jaisa
 `;
 
 /* ---------------- HELPERS ---------------- */
 function splitMessage(text, size = 3500) {
-  const parts = [];
-  for (let i = 0; i < text.length; i += size) {
-    parts.push(text.slice(i, i + size));
-  }
-  return parts;
+  const out = [];
+  for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size));
+  return out;
 }
 
-/* Detect topic type */
+/* -------- TOPIC DETECTION -------- */
 function detectTopic(text) {
   const t = text.toLowerCase();
 
+  // Rates / prices
   if (
-    t.includes("dharm") ||
-    t.includes("dharmik") ||
-    t.includes("religion") ||
-    t.includes("hindu") ||
-    t.includes("islam") ||
-    t.includes("muslim") ||
-    t.includes("mandir") ||
-    t.includes("masjid") ||
-    t.includes("ram") ||
-    t.includes("allah")
-  ) {
-    return "religious";
-  }
+    t.includes("rate") || t.includes("price") || t.includes("daam") ||
+    t.includes("gold") || t.includes("bitcoin") || t.includes("btc") ||
+    t.includes("petrol") || t.includes("diesel") ||
+    t.includes("dollar") || t.includes("usd")
+  ) return "rate";
 
+  // Festivals
   if (
-    t.includes("social") ||
-    t.includes("viral") ||
-    t.includes("trend") ||
-    t.includes("instagram") ||
-    t.includes("youtube") ||
-    t.includes("twitter") ||
+    t.includes("festival") || t.includes("tyohar") ||
+    t.includes("diwali") || t.includes("holi") ||
+    t.includes("eid") || t.includes("navratri") ||
+    t.includes("ramzan") || t.includes("christmas") ||
+    t.includes("gurpurab")
+  ) return "festival";
+
+  // Religious people / dharmik figures
+  if (
+    t.includes("ram") || t.includes("krishna") ||
+    t.includes("mahadev") || t.includes("shiv") ||
+    t.includes("hanuman") || t.includes("buddha") ||
+    t.includes("guru") || t.includes("nanak") ||
+    t.includes("allah") || t.includes("prophet") ||
+    t.includes("jesus")
+  ) return "religious_person";
+
+  // General dharmik discussion
+  if (
+    t.includes("dharm") || t.includes("dharmik") ||
+    t.includes("religion") || t.includes("mandir") ||
+    t.includes("masjid")
+  ) return "religious";
+
+  // Social / trends
+  if (
+    t.includes("social") || t.includes("viral") ||
+    t.includes("trend") || t.includes("instagram") ||
+    t.includes("youtube") || t.includes("twitter") ||
     t.includes("reel")
-  ) {
-    return "social";
-  }
+  ) return "social";
 
+  // General current
   if (
-    t.includes("aaj") ||
-    t.includes("abhi") ||
-    t.includes("today") ||
-    t.includes("current")
-  ) {
-    return "general";
-  }
+    t.includes("aaj") || t.includes("abhi") ||
+    t.includes("today") || t.includes("current")
+  ) return "general";
 
   return null;
 }
 
-/* Build smart search query */
-function buildSearchQuery(topic) {
-  if (topic === "religious") {
-    return "today religious discussion india";
-  }
-  if (topic === "social") {
-    return "today social media trends india";
-  }
-  if (topic === "general") {
-    return "today trending topics india";
-  }
+/* -------- SEARCH QUERY BUILDER -------- */
+function buildSearchQuery(topic, text) {
+  if (topic === "rate") return `today ${text} rate india`;
+  if (topic === "festival") return "today festival india religious";
+  if (topic === "religious_person") return `${text} religious significance`;
+  if (topic === "religious") return "today religious discussion india";
+  if (topic === "social") return "today social media trends india";
+  if (topic === "general") return "today trending topics india";
   return null;
 }
 
-/* Fetch live trend info (FREE) */
-async function fetchTrendingInfo(query) {
+/* -------- FREE LIVE INFO (DuckDuckGo) -------- */
+async function fetchLiveInfo(query) {
   const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(
     query
   )}&format=json&no_redirect=1&no_html=1`;
@@ -105,26 +111,34 @@ async function fetchTrendingInfo(query) {
 
   if (data.AbstractText) return data.AbstractText;
   if (data.Answer) return data.Answer;
-
   return null;
 }
 
-/* ---------------- OPENAI CALL ---------------- */
+/* -------- GROQ CALL -------- */
 async function getAIReply(userText) {
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4.1-mini",
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userText }
-    ],
-    temperature: 0.35,
-    max_tokens: 1400
-  });
-
-  return (
-    completion.choices?.[0]?.message?.content ||
-    "hmm 🤔 thoda clear bolo na"
+  const response = await fetch(
+    "https://api.groq.com/openai/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userText }
+        ],
+        temperature: 0.55,
+        max_tokens: 1400
+      })
+    }
   );
+
+  const data = await response.json();
+  return data?.choices?.[0]?.message?.content
+    || "hmm 🤔 thoda clear bolna";
 }
 
 /* ---------------- TELEGRAM WEBHOOK ---------------- */
@@ -137,34 +151,23 @@ export default async function handler(req, res) {
     const text = msg.text;
 
     let reply;
-
     const topic = detectTopic(text);
 
-    // 🔹 Current / trending topics
     if (topic) {
-      const searchQuery = buildSearchQuery(topic);
-      const liveInfo = searchQuery
-        ? await fetchTrendingInfo(searchQuery)
-        : null;
+      const query = buildSearchQuery(topic, text);
+      const liveInfo = query ? await fetchLiveInfo(query) : null;
 
-      if (liveInfo) {
-        reply = liveInfo;
-      } else {
-        reply = await getAIReply(text);
-      }
+      reply = liveInfo || await getAIReply(text);
     }
-    // 🔹 Start
     else if (text === "/start") {
-      reply = "acha 😄 bolo, aaj kis topic pe baat karni hai?";
+      reply = "acha 😄 bolo, aaj kya jaan na hai?";
     }
-    // 🔹 Normal chat
     else {
       reply = await getAIReply(text);
     }
 
     const pages = splitMessage(reply);
 
-    // 🔥 Always reply to same message
     for (const page of pages) {
       await fetch(
         `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
@@ -185,4 +188,4 @@ export default async function handler(req, res) {
     console.error(e);
     return res.json({ ok: true });
   }
-  }
+}
